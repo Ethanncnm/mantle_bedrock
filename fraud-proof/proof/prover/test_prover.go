@@ -201,6 +201,24 @@ func (l *TestProver) CaptureStart(env *vm.EVM, from common.Address, to common.Ad
 		Input:     bytesToHex(input),
 		InputSize: uintToHex(l.input.Size()),
 	}
+
+	log.Info("SHOW CTX in API")
+	log.Info("VerificationContext", "Coinbase", addrToHex(vmctx.Coinbase))
+	log.Info("VerificationContext", "Timestamp", bigToHex(vmctx.Time))
+	log.Info("VerificationContext", "Number", bigToHex(vmctx.BlockNumber))
+	log.Info("VerificationContext", "Origin", addrToHex(l.txctx.Origin))
+	log.Info("VerificationContext", "InputRoot", bytesToHex(input))
+	log.Info("VerificationContext", "TxHash", bytesToHex(l.transaction.Hash().Bytes()))
+	log.Info("Transaction", "Nonce", uintToHex(l.transaction.Nonce()))
+	log.Info("Transaction", "GasPrice", bigToHex(l.txctx.GasPrice))
+	log.Info("Transaction", "Gas", uintToHex(l.transaction.Gas()))
+	log.Info("Transaction", "To", recipient.String())
+	log.Info("Transaction", "Value", bigToHex(l.transaction.Value()))
+	log.Info("Transaction", "Data", bytesToHex(input))
+	log.Info("Transaction", "V", bigToHex(v))
+	log.Info("Transaction", "R", bigToHex(r))
+	log.Info("Transaction", "S", bigToHex(s))
+
 	log.Info("Capture Start", "from", from, "to", to)
 	return nil
 }
@@ -268,6 +286,7 @@ func (l *TestProver) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cos
 				Proof:     bytesToHex(encoded),
 				Idx:       l.counter - 1,
 			}
+			log.Info("SHOW PROOF", "hex is", bytesToHex(encoded))
 			log.Info("SHOW STATE", "length of lastState", len(l.lastState.Encode()))
 			log.Info("SHOW STATE", "length of encoded", len(encoded))
 
@@ -398,4 +417,12 @@ func (l *TestProver) GetResult() (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.RawMessage(res), nil
+}
+
+func (l *TestProver) GetCtx() OspTestGeneratedCtx {
+	return l.ctx
+}
+
+func (l *TestProver) GetProof() OspTestProof {
+	return l.proof
 }

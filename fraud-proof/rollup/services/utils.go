@@ -43,7 +43,7 @@ func SubmitOneStepProof(
 	log.Info("OSP VerifyOneStepProof...")
 	log.Warn("OSP verificationContext: ", "verificationContext", verificationContext)
 	log.Warn("OSP VerifierType: ", "VerifierType", uint8(osp.VerifierType))
-	log.Warn("OSP encode: ", "osp", osp.Encode())
+	log.Warn("OSP encode: ", "osp", hex.EncodeToString(osp.Encode()))
 	log.Warn("challengedStepIndex: ", "challengedStepIndex", challengedStepIndex)
 	log.Warn("prevChallengedSegmentStart: ", "prevChallengedSegmentStart", prevChallengedSegmentStart)
 	log.Warn("prevChallengedSegmentLength: ", "prevChallengedSegmentLength", prevChallengedSegmentLength)
@@ -56,6 +56,7 @@ func SubmitOneStepProof(
 		prevChallengedSegmentStart,
 		prevChallengedSegmentLength,
 	)
+	log.Info("")
 	if err != nil {
 		log.Error("OSP verification failed")
 		return err
@@ -108,19 +109,21 @@ func RespondBisection(
 		var state *proof.ExecutionState
 		if !bytes.Equal(startState[:], ev.StartState[:]) {
 			log.Error("bisection find different start state")
-			state = states[segStart]
-			challengedStepIndex.SetUint64(0)
+			return fmt.Errorf("bisection find different start state")
+			//state = states[segStart]
+			//challengedStepIndex.SetUint64(0)
 		} else if !bytes.Equal(midState[:], ev.MidState[:]) {
-			state = states[segStart+segLen/2+segLen%2]
+			state = states[segStart+MidLenWithMod(segLen)-1]
+			log.Info("RespondBisection find mid difference", "VMHash", state.VMHash.String(), "BlockNumber", state.Block.NumberU64(), "StepIdx", state.StepIdx, "index", segStart+MidLenWithMod(segLen))
 			challengedStepIndex.SetUint64(1)
 		} else if !bytes.Equal(endState[:], ev.EndState[:]) {
-			state = states[segStart+segLen]
+			state = states[segStart+segLen-1]
+			log.Info("RespondBisection find end difference", "VMHash", state.VMHash.String(), "BlockNumber", state.Block.NumberU64(), "StepIdx", state.StepIdx, "index", segStart+segLen)
 			challengedStepIndex.SetUint64(2)
 		} else {
 			log.Error("RespondBisection can't find state difference")
 			return nil
 		}
-
 		// We've reached one step
 		err = SubmitOneStepProof(
 			challengeSession,
@@ -132,11 +135,11 @@ func RespondBisection(
 			ev.ChallengedSegmentLength,
 		)
 		if err != nil {
-			log.Crit("UNHANDELED: osp failed", "err", err)
+			log.Error("UNHANDELED: osp failed", "err", err)
 		}
 		return err
 	} else {
-		log.Crit("RespondBisection segLen in event is illegal")
+		log.Error("RespondBisection segLen in event is illegal")
 	}
 	log.Info("BisectExecution", "bisection[0]", hex.EncodeToString(bisection[0][:]), "bisection[1]", hex.EncodeToString(bisection[1][:]), "bisection[2]", hex.EncodeToString(bisection[2][:]), "cidx", challengeIdx, "segStart", segStart, "segLen", segLen)
 	_, err = challengeSession.BisectExecution(
@@ -148,7 +151,8 @@ func RespondBisection(
 		ev.ChallengedSegmentLength,
 	)
 	if err != nil {
-		log.Crit("UNHANDELED: bisection excution failed", "err", err)
+		log.Error("UNHANDELED: bisection excution failed", "err", err)
+		return err
 	}
 	return nil
 }
@@ -193,7 +197,13 @@ func BuildVerificationContext(ctx context.Context, proofBackend proof.Backend, s
 	var txOrigin common.Address
 	evmTx.Nonce = tx.Nonce()
 	evmTx.GasPrice = tx.GasPrice()
-	evmTx.To = ethc.Address(*tx.To())
+	if tx.To() == nil {
+		// create contract
+		evmTx.To = ethc.BigToAddress(common.Big0)
+	} else {
+		// invoke && transfer
+		evmTx.To = ethc.Address(*tx.To())
+	}
 	evmTx.Value = tx.Value()
 	evmTx.Data = tx.Data()
 	if tx.QueueOrigin() == types.QueueOriginSequencer {
@@ -209,6 +219,24 @@ func BuildVerificationContext(ctx context.Context, proofBackend proof.Backend, s
 		evmTx.S = big.NewInt(0)
 		txOrigin = common.BigToAddress(common.Big0)
 	}
+
+	log.Info("SHOW CTX in BVC")
+	log.Info("VerificationContext", "Coinbase", ethc.Address(header.Coinbase).String())
+	log.Info("VerificationContext", "Timestamp", new(big.Int).SetUint64(tx.L1Timestamp()).String())
+	log.Info("VerificationContext", "Number", header.Number.String())
+	log.Info("VerificationContext", "Origin", ethc.Address(txOrigin).String())
+	log.Info("VerificationContext", "InputRoot", [32]byte{0})
+	log.Info("VerificationContext", "TxHash", tx.Hash().String())
+	log.Info("Transaction", "Nonce", evmTx.Nonce)
+	log.Info("Transaction", "GasPrice", evmTx.GasPrice.String())
+	log.Info("Transaction", "Gas", evmTx.Gas)
+	log.Info("Transaction", "To", evmTx.To.String())
+	log.Info("Transaction", "Value", evmTx.Value.String())
+	log.Info("Transaction", "Data", hex.EncodeToString(evmTx.Data))
+	log.Info("Transaction", "V", evmTx.V.String())
+	log.Info("Transaction", "R", evmTx.R.String())
+	log.Info("Transaction", "S", evmTx.S.String())
+
 	return &bindings.VerificationContextContext{
 		Coinbase:    ethc.Address(header.Coinbase),
 		Timestamp:   new(big.Int).SetUint64(tx.L1Timestamp()),
