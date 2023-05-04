@@ -60,13 +60,13 @@ if [ $SKIP_CONTRACT_DEPLOY == "NO" ] ;then
 elif [ $CONTRACTS_TARGET_NETWORK == "goerli-qa" ] ; then
   cp -r addresses-qa.txt addresses.txt
   cp -r filenames-qa.txt filenames.txt
-else [ $CONTRACTS_TARGET_NETWORK == "goerli-testnet" ]
+elif [ $CONTRACTS_TARGET_NETWORK == "goerli-testnet" ]; then
   cp -r addresses-testnet.txt addresses.txt
   cp -r filenames-testnet.txt filenames.txt
 fi
 
 # only gen addresses.json in local. Use exist configmap in k8s environment
-if [ $CONTRACTS_TARGET_NETWORK = "local" ] || [ $SKIP_CONTRACT_DEPLOY = "NO"];then
+if [[ $CONTRACTS_TARGET_NETWORK == "local" ]] || [[ $SKIP_CONTRACT_DEPLOY == "NO"]];then
   # Start building addresses.json.
   echo "{" > addresses.json
   # Zip the two files describe above together, then, switch their order and format as JSON.
@@ -86,7 +86,7 @@ cp addresses.json ./genesis
 cp ./genesis/$CONTRACTS_TARGET_NETWORK.json ./genesis/state-dump.latest.json
 
 # init balance
-if [ $CONTRACTS_TARGET_NETWORK == "local" ] ;then
+if [[ $CONTRACTS_TARGET_NETWORK == "local" ]] ;then
   jq -n 'reduce inputs as $item ({}; . *= $item)' ./genesis/state-dump.latest.json ./balance.json > genesis2.json
   mv ./genesis/state-dump.latest.json ./genesis/state-dump.latest.json.bak
   cp ./genesis2.json ./genesis/state-dump.latest.json

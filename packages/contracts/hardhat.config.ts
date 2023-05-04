@@ -139,8 +139,9 @@ const config: HardhatUserConfig = {
       deploy,
       accounts: [privateKey],
     },
+    // WARNING changed for testing new mainnet, need roll back
     mainnet: {
-      chainId: 1,
+      chainId: 5,
       url: process.env.CONTRACTS_RPC_URL || '',
       deploy,
       accounts: [privateKey],
