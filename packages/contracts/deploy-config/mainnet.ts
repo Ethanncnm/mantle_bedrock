@@ -3,6 +3,7 @@ const config = {
   gasPrice: 150_000_000_000,
   l1BlockTimeSeconds: 15,
   l2BlockGasLimit: 30_000_000,
+  updateGaslimitBlock: 0,
   l2ChainId: 5000,
   ctcL2GasDiscountDivisor: 32,
   ctcEnqueueGasCost: 60_000,
