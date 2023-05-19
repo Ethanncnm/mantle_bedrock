@@ -36,6 +36,24 @@ contract L1StandardBridge is StandardBridge, Semver {
 
     /**
      * @custom:legacy
+     * @notice Emitted whenever a deposit of BIT from L1 into L2 is initiated.
+     *
+     * @param from      Address of the depositor.
+     * @param to        Address of the recipient on L2.
+     * @param amount    Amount of BIT deposited.
+     * @param extraData Extra data attached to the deposit.
+     */
+    event BITDepositInitiated(
+        address indexed localToken,
+        address indexed remoteToken,
+        address indexed from,
+        address to,
+        uint256 amount,
+        bytes extraData
+    );
+
+    /**
+     * @custom:legacy
      * @notice Emitted whenever a withdrawal of ETH from L2 to L1 is finalized.
      *
      * @param from      Address of the withdrawer.
@@ -46,6 +64,26 @@ contract L1StandardBridge is StandardBridge, Semver {
     event ETHWithdrawalFinalized(
         address indexed from,
         address indexed to,
+        uint256 amount,
+        bytes extraData
+    );
+
+
+
+    /**
+ * @custom:legacy
+     * @notice Emitted whenever a withdrawal of ETH from L2 to L1 is finalized.
+     *
+     * @param from      Address of the withdrawer.
+     * @param to        Address of the recipient on L1.
+     * @param amount    Amount of ETH withdrawn.
+     * @param extraData Extra data attached to the withdrawal.
+     */
+    event BITWithdrawalFinalized(
+        address indexed l1Token,
+        address indexed l2Token,
+        address indexed from,
+        address to,
         uint256 amount,
         bytes extraData
     );
@@ -142,6 +180,36 @@ contract L1StandardBridge is StandardBridge, Semver {
         _initiateETHDeposit(msg.sender, _to, _minGasLimit, _extraData);
     }
 
+
+    function depositBIT(
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    ) external virtual onlyEOA {
+        _initiateBITDeposit(
+            msg.sender,
+            msg.sender,
+            _amount,
+            _minGasLimit,
+            _extraData
+        );
+    }
+
+    function depositBITTo(
+        address _to,
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    ) external virtual onlyEOA {
+        _initiateBITDeposit(
+            msg.sender,
+            _to,
+            _amount,
+            _minGasLimit,
+            _extraData
+        );
+    }
+
     /**
      * @custom:legacy
      * @notice Deposits some amount of ERC20 tokens into the sender's account on L2.
@@ -219,7 +287,7 @@ contract L1StandardBridge is StandardBridge, Semver {
         uint256 _amount,
         bytes calldata _extraData
     ) external payable {
-        finalizeBridgeETH(_from, _to, _amount, _extraData);
+        finalizeBridgeETHWithdrawal(_from, _to, _amount, _extraData);
     }
 
     /**
@@ -254,6 +322,40 @@ contract L1StandardBridge is StandardBridge, Semver {
         return address(OTHER_BRIDGE);
     }
 
+
+
+    function bridgeETHTo(
+        address _to,
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    ) public payable {
+        _initiateBridgeETHDeposit(Predeploys.BVM_ETH,msg.sender, _to, msg.value, _minGasLimit, _extraData);
+    }
+
+
+    function bridgeETH(
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    ) public payable {
+        _initiateBridgeETHDeposit(Predeploys.BVM_ETH,msg.sender, msg.sender, msg.value, _minGasLimit, _extraData);
+    }
+    /**
+     * @notice Internal function for initiating an BIT deposit.
+     *
+     * @param _from        Address of the sender on L1.
+     * @param _to          Address of the recipient on L2.
+     * @param _minGasLimit Minimum gas limit for the deposit message on L2.
+     * @param _extraData   Optional data to forward to L2.
+     */
+    function _initiateBITDeposit(
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes memory _extraData
+    ) internal {
+        _initiateBridgeBITDeposit(Predeploys.L1_BIT, _from, _to, _amount, _minGasLimit, _extraData);
+    }
     /**
      * @notice Internal function for initiating an ETH deposit.
      *
@@ -268,7 +370,7 @@ contract L1StandardBridge is StandardBridge, Semver {
         uint32 _minGasLimit,
         bytes memory _extraData
     ) internal {
-        _initiateBridgeETH(_from, _to, msg.value, _minGasLimit, _extraData);
+        _initiateBridgeETHDeposit(Predeploys.BVM_ETH,_from, _to, msg.value, _minGasLimit, _extraData);
     }
 
     /**
@@ -360,5 +462,30 @@ contract L1StandardBridge is StandardBridge, Semver {
     ) internal override {
         emit ERC20WithdrawalFinalized(_localToken, _remoteToken, _from, _to, _amount, _extraData);
         super._emitERC20BridgeFinalized(_localToken, _remoteToken, _from, _to, _amount, _extraData);
+    }
+
+
+    function _emitBITBridgeFinalized(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes memory _extraData
+    ) internal override {
+        emit BITWithdrawalFinalized(_localToken, _remoteToken, _from, _to, _amount, _extraData);
+        super._emitBITBridgeFinalized(_localToken, _remoteToken, _from, _to, _amount, _extraData);
+    }
+
+    function _emitBITBridgeInitiated(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes memory _extraData
+    ) internal override {
+        emit BITDepositInitiated(_localToken, _remoteToken, _from, _to, _amount, _extraData);
+        super._emitBITBridgeInitiated(_localToken, _remoteToken, _from, _to, _amount, _extraData);
     }
 }

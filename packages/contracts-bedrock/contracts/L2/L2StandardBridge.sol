@@ -73,13 +73,31 @@ contract L2StandardBridge is StandardBridge, Semver {
      */
     receive() external payable override onlyEOA {
         _initiateWithdrawal(
-            Predeploys.LEGACY_ERC20_ETH,
+            address(0),
             msg.sender,
             msg.sender,
             msg.value,
             RECEIVE_DEFAULT_GAS_LIMIT,
             bytes("")
         );
+    }
+    function bridgeETHTo(
+        address _to,
+        uint32 _minGasLimit,
+        uint256 _amount,
+        bytes calldata _extraData
+    ) public payable {
+        _initiateBridgeETHWithdrawal(Predeploys.BVM_ETH,address(0),msg.sender, _to, _amount, _minGasLimit, _extraData);
+    }
+
+
+
+    function bridgeETH(
+        uint32 _minGasLimit,
+        uint256 _amount,
+        bytes calldata _extraData
+    ) public payable {
+        _initiateBridgeETHWithdrawal(Predeploys.BVM_ETH,address(0),msg.sender, msg.sender, _amount, _minGasLimit, _extraData);
     }
 
     /**
@@ -148,8 +166,8 @@ contract L2StandardBridge is StandardBridge, Semver {
         uint256 _amount,
         bytes calldata _extraData
     ) external payable virtual {
-        if (_l1Token == address(0) && _l2Token == Predeploys.LEGACY_ERC20_ETH) {
-            finalizeBridgeETH(_from, _to, _amount, _extraData);
+        if (_l1Token == address(0) && _l2Token == Predeploys.BVM_ETH) {
+            finalizeBridgeETHDeposit(_l2Token,_l1Token,_from, _to, _amount, _extraData);
         } else {
             finalizeBridgeERC20(_l2Token, _l1Token, _from, _to, _amount, _extraData);
         }
@@ -184,8 +202,12 @@ contract L2StandardBridge is StandardBridge, Semver {
         uint32 _minGasLimit,
         bytes memory _extraData
     ) internal {
-        if (_l2Token == Predeploys.LEGACY_ERC20_ETH) {
-            _initiateBridgeETH(_from, _to, _amount, _minGasLimit, _extraData);
+        if (_l2Token == Predeploys.BVM_ETH) {
+            _initiateBridgeETHWithdrawal(_l2Token,address(0),_from, _to, _amount, _minGasLimit, _extraData);
+        }else if (_l2Token == address(0)){
+            require(msg.value!=0,"cant withdraw zero amount bit");
+            _initiateBridgeBITWithdrawal(_l2Token,Predeploys.L1_BIT,_from, _to, _amount, _minGasLimit, _extraData);
+
         } else {
             address l1Token = MantleMintableERC20(_l2Token).l1Token();
             _initiateBridgeERC20(_l2Token, l1Token, _from, _to, _amount, _minGasLimit, _extraData);
@@ -206,7 +228,7 @@ contract L2StandardBridge is StandardBridge, Semver {
     ) internal override {
         emit WithdrawalInitiated(
             address(0),
-            Predeploys.LEGACY_ERC20_ETH,
+            Predeploys.BVM_ETH,
             _from,
             _to,
             _amount,
@@ -229,7 +251,7 @@ contract L2StandardBridge is StandardBridge, Semver {
     ) internal override {
         emit DepositFinalized(
             address(0),
-            Predeploys.LEGACY_ERC20_ETH,
+            Predeploys.BVM_ETH,
             _from,
             _to,
             _amount,
@@ -273,4 +295,49 @@ contract L2StandardBridge is StandardBridge, Semver {
         emit DepositFinalized(_remoteToken, _localToken, _from, _to, _amount, _extraData);
         super._emitERC20BridgeFinalized(_localToken, _remoteToken, _from, _to, _amount, _extraData);
     }
+
+    function _emitBITBridgeInitiated(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes memory _extraData
+    ) internal override {
+        emit WithdrawalInitiated(
+            address(0),
+            Predeploys.L1_BIT,
+            _from,
+            _to,
+            _amount,
+            _extraData
+        );
+        super._emitBITBridgeInitiated(address(0), Predeploys.L1_BIT,_from, _to, _amount, _extraData);
+    }
+
+    /**
+     * @notice Emits the legacy DepositFinalized event followed by the ETHBridgeFinalized event.
+     *         This is necessary for backwards compatibility with the legacy bridge.
+     *
+     * @inheritdoc StandardBridge
+     */
+    function _emitBITBridgeFinalized(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes memory _extraData
+    ) internal override {
+        emit DepositFinalized(
+            address(0),
+            Predeploys.L1_BIT,
+            _from,
+            _to,
+            _amount,
+            _extraData
+        );
+        super._emitBITBridgeFinalized(address(0), Predeploys.L1_BIT,_from, _to, _amount, _extraData);
+    }
+
 }

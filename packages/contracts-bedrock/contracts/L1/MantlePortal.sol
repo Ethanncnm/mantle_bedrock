@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
-import { SafeCall } from "../libraries/SafeCall.sol";
-import { L2OutputOracle } from "./L2OutputOracle.sol";
-import { Constants } from "../libraries/Constants.sol";
-import { Types } from "../libraries/Types.sol";
-import { Hashing } from "../libraries/Hashing.sol";
-import { SecureMerkleTrie } from "../libraries/trie/SecureMerkleTrie.sol";
-import { AddressAliasHelper } from "../vendor/AddressAliasHelper.sol";
-import { ResourceMetering } from "./ResourceMetering.sol";
-import { Semver } from "../universal/Semver.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {SafeCall} from "../libraries/SafeCall.sol";
+import {L2OutputOracle} from "./L2OutputOracle.sol";
+import {Constants} from "../libraries/Constants.sol";
+import {Types} from "../libraries/Types.sol";
+import {Hashing} from "../libraries/Hashing.sol";
+import {SecureMerkleTrie} from "../libraries/trie/SecureMerkleTrie.sol";
+import {AddressAliasHelper} from "../vendor/AddressAliasHelper.sol";
+import {ResourceMetering} from "./ResourceMetering.sol";
+import {Semver} from "../universal/Semver.sol";
+import { BridgeConstants } from "../libraries/BridgeConstants.sol";
 
 /**
  * @custom:proxied
@@ -191,7 +192,7 @@ contract MantlePortal is Initializable, ResourceMetering, Semver {
      */
     // solhint-disable-next-line ordering
     receive() external payable {
-        depositTransaction(msg.sender, msg.value, RECEIVE_DEFAULT_GAS_LIMIT, false, bytes(""));
+        depositTransaction(msg.sender, 0, RECEIVE_DEFAULT_GAS_LIMIT, false, bytes(""));
     }
 
     /**
@@ -246,8 +247,8 @@ contract MantlePortal is Initializable, ResourceMetering, Semver {
         // output index has been updated.
         require(
             provenWithdrawal.timestamp == 0 ||
-                L2_ORACLE.getL2Output(provenWithdrawal.l2OutputIndex).outputRoot !=
-                provenWithdrawal.outputRoot,
+            L2_ORACLE.getL2Output(provenWithdrawal.l2OutputIndex).outputRoot !=
+            provenWithdrawal.outputRoot,
             "MantlePortal: withdrawal hash has already been proven"
         );
 
@@ -294,8 +295,8 @@ contract MantlePortal is Initializable, ResourceMetering, Semver {
      * @param _tx Withdrawal transaction to finalize.
      */
     function finalizeWithdrawalTransaction(Types.WithdrawalTransaction memory _tx)
-        external
-        whenNotPaused
+    external
+    whenNotPaused
     {
         // Make sure that the l2Sender has not yet been set. The l2Sender is set to a value other
         // than the default value when a withdrawal transaction is being finalized. This check is
@@ -439,8 +440,9 @@ contract MantlePortal is Initializable, ResourceMetering, Semver {
         // Compute the opaque data that will be emitted as part of the TransactionDeposited event.
         // We use opaque data so that we can update the TransactionDeposited event in the future
         // without breaking the current interface.
+
         bytes memory opaqueData = abi.encodePacked(
-            msg.value,
+            _value,
             _value,
             _gasLimit,
             _isCreation,

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { SafeCall } from "../libraries/SafeCall.sol";
-import { Hashing } from "../libraries/Hashing.sol";
-import { Encoding } from "../libraries/Encoding.sol";
-import { Constants } from "../libraries/Constants.sol";
-
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {SafeCall} from "../libraries/SafeCall.sol";
+import {Hashing} from "../libraries/Hashing.sol";
+import {Encoding} from "../libraries/Encoding.sol";
+import {Constants} from "../libraries/Constants.sol";
+import { BridgeConstants } from "../libraries/BridgeConstants.sol";
 /**
  * @custom:legacy
  * @title CrossDomainMessengerLegacySpacer0
@@ -112,9 +112,9 @@ contract CrossDomainMessengerLegacySpacer1 {
  *         Any changes to this contract MUST result in a semver bump for contracts that inherit it.
  */
 abstract contract CrossDomainMessenger is
-    CrossDomainMessengerLegacySpacer0,
-    Initializable,
-    CrossDomainMessengerLegacySpacer1
+CrossDomainMessengerLegacySpacer0,
+Initializable,
+CrossDomainMessengerLegacySpacer1
 {
     /**
      * @notice Current message version identifier.
@@ -255,6 +255,8 @@ abstract contract CrossDomainMessenger is
      * @param _minGasLimit Minimum gas limit that the message can be executed with.
      */
     function sendMessage(
+        uint32 _type,
+        uint256 _amount,
         address _target,
         bytes calldata _message,
         uint32 _minGasLimit
@@ -263,27 +265,57 @@ abstract contract CrossDomainMessenger is
         // message is the amount of gas requested by the user PLUS the base gas value. We want to
         // guarantee the property that the call to the target contract will always have at least
         // the minimum gas limit specified by the user.
-        _sendMessage(
-            OTHER_MESSENGER,
-            baseGas(_message, _minGasLimit),
-            msg.value,
-            abi.encodeWithSelector(
-                this.relayMessage.selector,
-                messageNonce(),
-                msg.sender,
-                _target,
+
+
+        if (_type == BridgeConstants.BIT_TX || _type == BridgeConstants.ETH_WITHDRAWAL_TX) {
+            _sendMessage(
+                _type,
+                OTHER_MESSENGER,
+                baseGas(_message, _minGasLimit),
+                _amount,
+                abi.encodeWithSelector(
+                    this.relayMessage.selector,
+                    messageNonce(),
+                    msg.sender,
+                    _target,
+                    _amount,
+                    _minGasLimit,
+                    _message
+                )
+            );
+
+        } else if (_type == BridgeConstants.ETH_TX || _type == BridgeConstants.ERC20_TX) {
+            //0:ETH or 2:ERC20 deposit
+            _sendMessage(
+                _type,
+                OTHER_MESSENGER,
+                baseGas(_message, _minGasLimit),
                 msg.value,
-                _minGasLimit,
-                _message
-            )
-        );
+                abi.encodeWithSelector(
+                    this.relayMessage.selector,
+                    messageNonce(),
+                    msg.sender,
+                    _target,
+                    0,
+                    _minGasLimit,
+                    _message
+                )
+            );
+        }
+
+
+
 
         emit SentMessage(_target, msg.sender, _message, messageNonce(), _minGasLimit);
-        emit SentMessageExtension1(msg.sender, msg.value);
-
-        unchecked {
-            ++msgNonce;
+        if (_type == BridgeConstants.BIT_TX){
+            emit SentMessageExtension1(msg.sender, _amount);
+        }else{
+            emit SentMessageExtension1(msg.sender, 0);
         }
+
+    unchecked {
+        ++msgNonce;
+    }
     }
 
     /**
@@ -440,13 +472,13 @@ abstract contract CrossDomainMessenger is
         // by MIN_GAS_DYNAMIC_OVERHEAD_NUMERATOR would otherwise limit the _minGasLimit to
         // type(uint32).max / MIN_GAS_DYNAMIC_OVERHEAD_NUMERATOR ~= 4.2m.
         return
-            // Dynamic overhead
-            ((uint64(_minGasLimit) * MIN_GAS_DYNAMIC_OVERHEAD_NUMERATOR) /
-                MIN_GAS_DYNAMIC_OVERHEAD_DENOMINATOR) +
-            // Calldata overhead
-            (uint64(_message.length) * MIN_GAS_CALLDATA_OVERHEAD) +
-            // Constant overhead
-            MIN_GAS_CONSTANT_OVERHEAD;
+        // Dynamic overhead
+        ((uint64(_minGasLimit) * MIN_GAS_DYNAMIC_OVERHEAD_NUMERATOR) /
+        MIN_GAS_DYNAMIC_OVERHEAD_DENOMINATOR) +
+        // Calldata overhead
+        (uint64(_message.length) * MIN_GAS_CALLDATA_OVERHEAD) +
+        // Constant overhead
+        MIN_GAS_CONSTANT_OVERHEAD;
     }
 
     /**
@@ -468,6 +500,7 @@ abstract contract CrossDomainMessenger is
      * @param _data     Message data.
      */
     function _sendMessage(
+        uint32 _type,
         address _to,
         uint64 _gasLimit,
         uint256 _value,

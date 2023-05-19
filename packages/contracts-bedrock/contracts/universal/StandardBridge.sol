@@ -9,6 +9,8 @@ import { SafeCall } from "../libraries/SafeCall.sol";
 import { IMantleMintableERC20, ILegacyMintableERC20 } from "./IMantleMintableERC20.sol";
 import { CrossDomainMessenger } from "./CrossDomainMessenger.sol";
 import { MantleMintableERC20 } from "./MantleMintableERC20.sol";
+import { Predeploys } from "../libraries/Predeploys.sol";
+import { BridgeConstants } from "../libraries/BridgeConstants.sol";
 
 /**
  * @custom:upgradeable
@@ -129,6 +131,23 @@ abstract contract StandardBridge {
         bytes extraData
     );
 
+    event BITBridgeInitiated(
+        address indexed localToken,
+        address indexed remoteToken,
+        address indexed from,
+        address to,
+        uint256 amount,
+        bytes extraData
+    );
+
+    event BITBridgeFinalized(
+        address indexed localToken,
+        address indexed remoteToken,
+        address indexed from,
+        address to,
+        uint256 amount,
+        bytes extraData
+    );
     /**
      * @notice Only allow EOAs to call the functions. Note that this is not safe against contracts
      *         calling code within their constructors, but also doesn't really matter since we're
@@ -187,9 +206,9 @@ abstract contract StandardBridge {
      *                     not be triggered with this data, but it will be emitted and can be used
      *                     to identify the transaction.
      */
-    function bridgeETH(uint32 _minGasLimit, bytes calldata _extraData) public payable onlyEOA {
-        _initiateBridgeETH(msg.sender, msg.sender, msg.value, _minGasLimit, _extraData);
-    }
+//    function bridgeETH(uint32 _minGasLimit, bytes calldata _extraData) public payable onlyEOA {
+//        _initiateBridgeETH(msg.sender, msg.sender, msg.value, _minGasLimit, _extraData);
+//    }
 
     /**
      * @notice Sends ETH to a receiver's address on the other chain. Note that if ETH is sent to a
@@ -206,13 +225,25 @@ abstract contract StandardBridge {
      *                     not be triggered with this data, but it will be emitted and can be used
      *                     to identify the transaction.
      */
-    function bridgeETHTo(
+    function bridgeL1ETHTo(
         address _to,
         uint32 _minGasLimit,
         bytes calldata _extraData
     ) public payable {
-        _initiateBridgeETH(msg.sender, _to, msg.value, _minGasLimit, _extraData);
+        _initiateBridgeETHDeposit(Predeploys.BVM_ETH,msg.sender, _to, msg.value, _minGasLimit, _extraData);
     }
+
+    function bridgeL2ETHTo(
+        address _localToken,
+        address _to,
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes calldata _extraData
+    ) public payable {
+        _initiateBridgeETHWithdrawal(_localToken,address(0),msg.sender,_to,_amount,_minGasLimit,_extraData );
+
+    }
+
 
     /**
      * @notice Sends ERC20 tokens to the sender's address on the other chain. Note that if the
@@ -283,7 +314,8 @@ abstract contract StandardBridge {
     /**
      * @notice Finalizes an ETH bridge on this chain. Can only be triggered by the other
      *         StandardBridge contract on the remote chain.
-     *
+     * @param _localToken      Address of the sender token.
+     * @param _remoteToken     Address of the receiver token.
      * @param _from      Address of the sender.
      * @param _to        Address of the receiver.
      * @param _amount    Amount of ETH being bridged.
@@ -291,7 +323,39 @@ abstract contract StandardBridge {
      *                   not be triggered with this data, but it will be emitted and can be used
      *                   to identify the transaction.
      */
-    function finalizeBridgeETH(
+    function finalizeBridgeETHDeposit(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes calldata _extraData
+    ) public payable onlyOtherBridge {
+        require(_to != address(this), "StandardBridge: cannot send to self");
+        require(_to != address(MESSENGER), "StandardBridge: cannot send to messenger");
+
+
+
+
+        if (_isMantleMintableERC20(_localToken)) {
+            require(
+                _isCorrectTokenPair(_localToken, _remoteToken),
+                "StandardBridge: wrong remote token for Mantle Mintable ERC20 local token"
+            );
+
+            MantleMintableERC20(_localToken).mint(_to, _amount);
+        } else {
+            deposits[_localToken][_remoteToken] = deposits[_localToken][_remoteToken] - _amount;
+            IERC20(_localToken).safeTransfer(_to, _amount);
+        }
+
+        // Emit the correct events. By default this will be ERC20BridgeFinalized, but child
+        // contracts may override this function in order to emit legacy events as well.
+        _emitETHBridgeFinalized(_from, _to, _amount, _extraData);
+
+
+    }
+    function finalizeBridgeETHWithdrawal(
         address _from,
         address _to,
         uint256 _amount,
@@ -308,6 +372,68 @@ abstract contract StandardBridge {
         bool success = SafeCall.call(_to, gasleft(), _amount, hex"");
         require(success, "StandardBridge: ETH transfer failed");
     }
+    /**
+ * @notice Finalizes an BIT bridge on this chain. Can only be triggered by the other
+     *         StandardBridge contract on the remote chain.
+     *
+     * @param _from      Address of the sender.
+     * @param _to        Address of the receiver.
+     * @param _amount    Amount of BIT being bridged.
+     * @param _extraData Extra data to be sent with the transaction. Note that the recipient will
+     *                   not be triggered with this data, but it will be emitted and can be used
+     *                   to identify the transaction.
+     */
+    function finalizeBridgeBITDeposit(
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes calldata _extraData
+    ) public payable onlyOtherBridge {
+        require(msg.value == _amount, "StandardBridge: amount sent does not match amount required");
+        require(_to != address(this), "StandardBridge: cannot send to self");
+        require(_to != address(MESSENGER), "StandardBridge: cannot send to messenger");
+
+        // Emit the correct events. By default this will be _amount, but child
+        // contracts may override this function in order to emit legacy events as well.
+        _emitBITBridgeFinalized(address(0),Predeploys.L1_BIT, _from, _to, _amount, _extraData);
+
+        bool success = SafeCall.call(_to, gasleft(), _amount, hex"");
+        require(success, "StandardBridge: BIT transfer failed");
+    }
+
+
+    /**
+     * @notice Finalizes an BIT bridge on this chain. Can only be triggered by the other
+     *         StandardBridge contract on the remote chain.
+     *
+     * @param _localToken  Address of the L1BIT on this chain.
+     * @param _remoteToken Address of the corresponding token on the remote chain.
+     * @param _from        Address of the sender.
+     * @param _to          Address of the receiver.
+     * @param _amount      Amount of the ERC20 being bridged.
+     * @param _extraData   Extra data to be sent with the transaction. Note that the recipient will
+     *                     not be triggered with this data, but it will be emitted and can be used
+     *                     to identify the transaction.
+     */
+    function finalizeBridgeBITWithdraw(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes calldata _extraData
+    ) public onlyOtherBridge {
+
+        deposits[_localToken][_remoteToken] = deposits[_localToken][_remoteToken] - _amount;
+        IERC20(_localToken).safeTransfer(_to, _amount);
+
+        // Emit the correct events. By default this will be ERC20BridgeFinalized, but child
+        // contracts may override this function in order to emit legacy events as well.
+        _emitERC20BridgeFinalized(_localToken, _remoteToken, _from, _to, _amount, _extraData);
+    }
+
+
+
 
     /**
      * @notice Finalizes an ERC20 bridge on this chain. Can only be triggered by the other
@@ -350,6 +476,7 @@ abstract contract StandardBridge {
     /**
      * @notice Initiates a bridge of ETH through the CrossDomainMessenger.
      *
+     * @param _remoteToken        Address of the L2ETH.
      * @param _from        Address of the sender.
      * @param _to          Address of the receiver.
      * @param _amount      Amount of ETH being bridged.
@@ -358,7 +485,8 @@ abstract contract StandardBridge {
      *                     not be triggered with this data, but it will be emitted and can be used
      *                     to identify the transaction.
      */
-    function _initiateBridgeETH(
+    function _initiateBridgeETHDeposit(
+        address _remoteToken,
         address _from,
         address _to,
         uint256 _amount,
@@ -372,12 +500,165 @@ abstract contract StandardBridge {
 
         // Emit the correct events. By default this will be _amount, but child
         // contracts may override this function in order to emit legacy events as well.
-        _emitETHBridgeInitiated(_from, _to, _amount, _extraData);
+        _emitETHBridgeInitiated( _from, _to, _amount, _extraData);
 
         MESSENGER.sendMessage{ value: _amount }(
+            BridgeConstants.ETH_TX,
+            _amount,
             address(OTHER_BRIDGE),
             abi.encodeWithSelector(
-                this.finalizeBridgeETH.selector,
+                this.finalizeBridgeETHDeposit.selector,
+                _remoteToken,
+                address(0),
+                _from,
+                _to,
+                _amount,
+                _extraData
+            ),
+            _minGasLimit
+        );
+    }
+
+    /**
+ * @notice Initiates a bridge of ETH through the CrossDomainMessenger.
+     *
+     * @param _localToken     Address of the sender's token address.
+     * @param _remoteToken    Address of the receiver's token address.
+     * @param _from        Address of the sender.
+     * @param _to          Address of the receiver.
+     * @param _amount      Amount of ETH being bridged.
+     * @param _minGasLimit Minimum amount of gas that the bridge can be relayed with.
+     * @param _extraData   Extra data to be sent with the transaction. Note that the recipient will
+     *                     not be triggered with this data, but it will be emitted and can be used
+     *                     to identify the transaction.
+     */
+    function _initiateBridgeBITWithdrawal(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes memory _extraData
+    ) internal {
+        require(
+            msg.value == _amount,
+            "StandardBridge: bridging BIT must include sufficient ETH value"
+        );
+
+        // Emit the correct events. By default this will be _amount, but child
+        // contracts may override this function in order to emit legacy events as well.
+        _emitBITBridgeInitiated(_localToken,_remoteToken,_from, _to, _amount, _extraData);
+
+        MESSENGER.sendMessage{ value: _amount }(
+            BridgeConstants.BIT_TX,
+            _amount,
+            address(OTHER_BRIDGE),
+            abi.encodeWithSelector(
+                this.finalizeBridgeBITWithdraw.selector,
+                _remoteToken,
+                _localToken,
+                _from,
+                _to,
+                _amount,
+                _extraData
+            ),
+            _minGasLimit
+        );
+
+
+    }
+
+    /**
+ * @notice Sends ERC20 tokens to a receiver's address on the other chain.
+     *
+     * @param _localToken  Address of the ERC20 on this chain.
+     * @param _to          Address of the receiver.
+     * @param _amount      Amount of local tokens to deposit.
+     * @param _minGasLimit Minimum amount of gas that the bridge can be relayed with.
+     * @param _extraData   Extra data to be sent with the transaction. Note that the recipient will
+     *                     not be triggered with this data, but it will be emitted and can be used
+     *                     to identify the transaction.
+     */
+    function _initiateBridgeBITDeposit(
+        address _localToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes memory _extraData
+    ) internal {
+
+        IERC20(_localToken).safeTransferFrom(_from, address(this), _amount);
+        deposits[_localToken][address(0) ] = deposits[_localToken][address(0)] + _amount;
+
+        // Emit the correct events. By default this will be ERC20BridgeInitiated, but child
+        // contracts may override this function in order to emit legacy events as well.
+        _emitBITBridgeInitiated(_localToken, address(0) , _from, _to, _amount, _extraData);
+
+        MESSENGER.sendMessage(
+            BridgeConstants.BIT_TX,
+            _amount,
+            address(OTHER_BRIDGE),
+            abi.encodeWithSelector(
+                this.finalizeBridgeBITDeposit.selector,
+                _from,
+                _to,
+                _amount,
+                _extraData
+            ),
+            _minGasLimit
+        );
+    }
+
+    /**
+ * @notice Sends ETH tokens to a receiver's address on the other chain.
+     *
+     * @param _localToken  Address of the ETH on this chain.
+     * @param _remoteToken Address of the ETH on other chain.
+     * @param _from          Address of the sender.
+     * @param _to          Address of the receiver.
+     * @param _amount      Amount of local tokens to deposit.
+     * @param _minGasLimit Minimum amount of gas that the bridge can be relayed with.
+     * @param _extraData   Extra data to be sent with the transaction. Note that the recipient will
+     *                     not be triggered with this data, but it will be emitted and can be used
+     *                     to identify the transaction.
+     */
+    function _initiateBridgeETHWithdrawal(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint32 _minGasLimit,
+        bytes memory _extraData
+    ) internal {
+        //TODO check _localToken and _remoteToken.
+        if (_isMantleMintableERC20(_localToken)) {
+            require(
+                _isCorrectTokenPair(_localToken, _remoteToken),
+                "StandardBridge: wrong remote token for Mantle Mintable ERC20 local token"
+            );
+
+            MantleMintableERC20(_localToken).burn(_from, _amount);
+        } else {
+            IERC20(_localToken).safeTransferFrom(_from, address(this), _amount);
+            deposits[_localToken][_remoteToken] = deposits[_localToken][_remoteToken] + _amount;
+        }
+
+        // Emit the correct events. By default this will be ERC20BridgeInitiated, but child
+        // contracts may override this function in order to emit legacy events as well.
+        _emitETHBridgeInitiated( _from, _to, _amount, _extraData);
+
+        MESSENGER.sendMessage(
+            BridgeConstants.ETH_WITHDRAWAL_TX,
+            _amount,
+            address(OTHER_BRIDGE),
+            abi.encodeWithSelector(
+                this.finalizeBridgeETHWithdrawal.selector,
+                // Because this call will be executed on the remote chain, we reverse the order of
+                // the remote and local token addresses relative to their order in the
+                // finalizeBridgeERC20 function.
                 _from,
                 _to,
                 _amount,
@@ -392,6 +673,7 @@ abstract contract StandardBridge {
      *
      * @param _localToken  Address of the ERC20 on this chain.
      * @param _remoteToken Address of the corresponding token on the remote chain.
+     * @param _from          Address of the sender.
      * @param _to          Address of the receiver.
      * @param _amount      Amount of local tokens to deposit.
      * @param _minGasLimit Minimum amount of gas that the bridge can be relayed with.
@@ -408,6 +690,12 @@ abstract contract StandardBridge {
         uint32 _minGasLimit,
         bytes memory _extraData
     ) internal {
+
+
+        require(_localToken != address(0) && _localToken != Predeploys.L1_BIT ,
+            "StandardBridge: BIT and ETH deposit should not call this function."
+        );
+
         if (_isMantleMintableERC20(_localToken)) {
             require(
                 _isCorrectTokenPair(_localToken, _remoteToken),
@@ -425,6 +713,8 @@ abstract contract StandardBridge {
         _emitERC20BridgeInitiated(_localToken, _remoteToken, _from, _to, _amount, _extraData);
 
         MESSENGER.sendMessage(
+            BridgeConstants.ERC20_TX,
+            _amount,
             address(OTHER_BRIDGE),
             abi.encodeWithSelector(
                 this.finalizeBridgeERC20.selector,
@@ -507,6 +797,38 @@ abstract contract StandardBridge {
         emit ETHBridgeFinalized(_from, _to, _amount, _extraData);
     }
 
+    function _emitBITBridgeInitiated(
+        address _local,
+        address _remote,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes memory _extraData
+    ) internal virtual {
+        emit BITBridgeInitiated(_local,_remote,_from, _to, _amount, _extraData);
+    }
+
+    /**
+     * @notice Emits the ETHBridgeFinalized and if necessary the appropriate legacy event when an
+     *         ETH bridge is finalized on this chain.
+
+     * @param _localToken  Address of the ERC20 on this chain.
+     * @param _remoteToken Address of the corresponding token on the remote chain.
+     * @param _from      Address of the sender.
+     * @param _to        Address of the receiver.
+     * @param _amount    Amount of ETH sent.
+     * @param _extraData Extra data sent with the transaction.
+     */
+    function _emitBITBridgeFinalized(
+        address _localToken,
+        address _remoteToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes memory _extraData
+    ) internal virtual {
+        emit BITBridgeFinalized(_localToken,_remoteToken,_from, _to, _amount, _extraData);
+    }
     /**
      * @notice Emits the ERC20BridgeInitiated event and if necessary the appropriate legacy
      *         event when an ERC20 bridge is initiated to the other chain.
@@ -528,6 +850,7 @@ abstract contract StandardBridge {
     ) internal virtual {
         emit ERC20BridgeInitiated(_localToken, _remoteToken, _from, _to, _amount, _extraData);
     }
+
 
     /**
      * @notice Emits the ERC20BridgeFinalized event and if necessary the appropriate legacy

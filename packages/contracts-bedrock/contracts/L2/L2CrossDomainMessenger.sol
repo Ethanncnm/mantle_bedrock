@@ -6,6 +6,7 @@ import { Predeploys } from "../libraries/Predeploys.sol";
 import { CrossDomainMessenger } from "../universal/CrossDomainMessenger.sol";
 import { Semver } from "../universal/Semver.sol";
 import { L2ToL1MessagePasser } from "./L2ToL1MessagePasser.sol";
+import { BridgeConstants } from "../libraries/BridgeConstants.sol";
 
 /**
  * @custom:proxied
@@ -49,6 +50,7 @@ contract L2CrossDomainMessenger is CrossDomainMessenger, Semver {
      * @inheritdoc CrossDomainMessenger
      */
     function _sendMessage(
+        uint32 _type,
         address _to,
         uint64 _gasLimit,
         uint256 _value,

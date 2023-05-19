@@ -5,6 +5,7 @@ import { Predeploys } from "../libraries/Predeploys.sol";
 import { MantlePortal } from "./MantlePortal.sol";
 import { CrossDomainMessenger } from "../universal/CrossDomainMessenger.sol";
 import { Semver } from "../universal/Semver.sol";
+import { BridgeConstants } from "../libraries/BridgeConstants.sol";
 
 /**
  * @custom:proxied
@@ -43,12 +44,17 @@ contract L1CrossDomainMessenger is CrossDomainMessenger, Semver {
      * @inheritdoc CrossDomainMessenger
      */
     function _sendMessage(
+        uint32 _type,
         address _to,
         uint64 _gasLimit,
         uint256 _value,
         bytes memory _data
     ) internal override {
-        PORTAL.depositTransaction{ value: _value }(_to, _value, _gasLimit, false, _data);
+        if (_type == BridgeConstants.BIT_TX){
+            PORTAL.depositTransaction{ value: 0 }(_to, _value, _gasLimit, false, _data);
+        }else{
+            PORTAL.depositTransaction{ value: _value }(_to, 0, _gasLimit, false, _data);
+        }
     }
 
     /**
